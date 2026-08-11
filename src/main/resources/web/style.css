@@ -1,0 +1,16 @@
+body { margin: 0; overflow: hidden; font-family: system-ui, sans-serif; }
+#hud {
+  position: fixed; top: 10px; left: 10px; z-index: 10;
+  background: rgba(0,0,0,.55); color: #fff; padding: 10px 14px; border-radius: 8px;
+  font-size: 13px; max-width: 340px; pointer-events: none;
+}
+#status { font-weight: 600; margin-bottom: 6px; }
+#buttons { pointer-events: auto; margin-bottom: 6px; }
+#buttons button {
+  background: #2b6cb0; color: #fff; border: 0; border-radius: 5px;
+  padding: 5px 10px; margin-right: 6px; cursor: pointer; font-size: 13px;
+}
+#buttons button:hover { background: #2c5282; }
+#buttons button.danger { background: #c53030; }
+#buttons button.danger:hover { background: #9b2c2c; }
+#hint { opacity: .7; font-size: 12px; }

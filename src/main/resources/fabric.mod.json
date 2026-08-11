@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "remotebot",
+  "version": "${version}",
+  "name": "RemoteBot",
+  "description": "Spawn a fake-player bot you can see and control from a browser, with a live 3D voxel view.",
+  "authors": ["botView"],
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["dev.botview.remotebot.RemoteBotMod"]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "~1.21.1",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}

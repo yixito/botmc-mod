@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>RemoteBot</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="hud">
+  <div id="status">connecting…</div>
+  <div id="buttons">
+    <button id="btn-follow">Follow</button>
+    <button id="btn-idle">Idle</button>
+    <button id="btn-stop" class="danger">Stop</button>
+    <button id="btn-resume">Resume</button>
+    <button id="btn-attack">Attack</button>
+  </div>
+  <div id="hint">WASD move · drag mouse to look · left-click ground: walk there · right-click: cancel · F: attack</div>
+</div>
+<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

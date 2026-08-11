@@ -1,0 +1,42 @@
+plugins {
+    id 'fabric-loom' version '1.9.2'
+    id 'java'
+}
+
+version = '0.1.0'
+group = 'dev.botview'
+base { archivesName = 'remotebot' }
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:1.21.1"
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:0.16.14"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:0.116.15+1.21.1"
+
+    // Used at compile time only; at runtime the classes come from Minecraft's own bundles.
+    compileOnly 'io.netty:netty-all:4.1.97.Final'
+    compileOnly 'com.google.code.gson:gson:2.10.1'
+    // netty-codec-http (HTTP + WebSocket) is NOT bundled with the dedicated server,
+    // so ship it inside the mod jar.
+    implementation 'io.netty:netty-codec-http:4.1.97.Final'
+    include 'io.netty:netty-codec-http:4.1.97.Final'
+}
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(21) }
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') { expand 'version': project.version }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 21
+}
