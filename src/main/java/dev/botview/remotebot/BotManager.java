@@ -19,6 +19,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.CommonListenerCookie;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityDimensions;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
@@ -53,7 +55,7 @@ public class BotManager {
 
     private final List<Runnable> actionQueue = new ArrayList<>();
     private FakeConnection fakeConn;
-    private int stateTimer, blockTimer;
+    private int stateTimer, blockTimer, entityTimer;
     private int lastX0 = Integer.MIN_VALUE, lastY0, lastZ0; // last sent snapshot window
 
     // ---- lifecycle (server thread) ----
@@ -157,6 +159,8 @@ public class BotManager {
                     RemoteBotMod.web.broadcast(blocksJson());
                 }
             }
+            // entities move on their own, so send them regardless of the block window
+            if (--entityTimer <= 0) { entityTimer = 10; RemoteBotMod.web.broadcast(entitiesJson()); }
         }
     }
 
@@ -291,16 +295,31 @@ public class BotManager {
         }
         sb.append("],\"data\":\"").append(Base64.getEncoder().encodeToString(grid)).append('"');
         // nearby entities so the view is not empty
-        sb.append(",\"entities\":[");
+        sb.append(",\"entities\":").append(entitiesArray());
+        return sb.append("}").toString();
+    }
+
+    private String entitiesJson() {
+        return "{\"type\":\"entities\",\"entities\":" + entitiesArray() + "}";
+    }
+
+    /** All nearby entities except the bot: name, type, position, size. */
+    private String entitiesArray() {
+        StringBuilder sb = new StringBuilder("[");
         boolean first = true;
-        for (ServerPlayer p : level.getEntitiesOfClass(ServerPlayer.class, bot.getBoundingBox().inflate(24.0))) {
-            if (p == bot) continue;
+        for (Entity e : level.getEntities(bot, bot.getBoundingBox().inflate(24.0), e -> e != bot)) {
             if (!first) sb.append(',');
             first = false;
-            sb.append("{\"n\":\"").append(p.getGameProfile().getName())
-                    .append("\",\"p\":[").append(trim(p.getX())).append(',').append(trim(p.getY())).append(',').append(trim(p.getZ())).append("]}");
+            String name = e instanceof ServerPlayer p ? p.getGameProfile().getName()
+                    : e.getType().getDescription().getString();
+            String type = e instanceof ServerPlayer ? "player" : "mob";
+            EntityDimensions dim = e.getDimensions(e.getPose());
+            sb.append("{\"n\":\"").append(name)
+                    .append("\",\"t\":\"").append(type)
+                    .append("\",\"p\":[").append(trim(e.getX())).append(',').append(trim(e.getY())).append(',').append(trim(e.getZ())).append(']')
+                    .append(",\"w\":").append(trim(dim.width())).append(",\"h\":").append(trim(dim.height())).append('}');
         }
-        return sb.append("]}").toString();
+        return sb.append("]").toString();
     }
 
     private static String trim(double v) {

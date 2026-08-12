@@ -64,6 +64,8 @@ function handle(m) {
       break;
     case 'blocks':
       buildVoxels(m);
+      break;
+    case 'entities':
       buildEntities(m.entities || []);
       break;
     case 'path':
@@ -142,10 +144,10 @@ function buildVoxels(m) {
   const occludes = (x, y, z) => inGrid(x, y, z) && bytes[at(x, y, z)] !== 0 && !isCross(x, y, z);
 
   const positions = [], colors = [], indices = [];
-  const quad = (verts, light) => {
+  const quad = (verts, light) => { // verts are absolute world coordinates
     const base = positions.length / 3;
     for (const v of verts) {
-      positions.push(x0 + v[0], y0 + v[1], z0 + v[2]);
+      positions.push(v[0], v[1], v[2]);
       colors.push(light[0], light[1], light[2]);
     }
     indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
@@ -178,14 +180,22 @@ function buildVoxels(m) {
   scene.add(voxelMesh);
 }
 
+function entityColor(type, name) {
+  if (type === 'player') return 0xff5533;
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return new THREE.Color().setHSL((h % 360) / 360, 0.6, 0.6);
+}
+
 function buildEntities(entities) {
   for (const e of entityMarkers) { scene.remove(e); e.geometry.dispose(); }
   entityMarkers = [];
   for (const e of entities) {
-    const geo = new THREE.BoxGeometry(0.6, 1.8, 0.6);
-    const mat = new THREE.MeshLambertMaterial({ color: 0xff5533 });
+    const w = e.w || 0.6, h = e.h || 1.8;
+    const geo = new THREE.BoxGeometry(w, h, w);
+    const mat = new THREE.MeshLambertMaterial({ color: entityColor(e.t, e.n) });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(e.p[0], e.p[1] + 0.9, e.p[2]);
+    mesh.position.set(e.p[0], e.p[1] + h / 2, e.p[2]);
     scene.add(mesh);
     entityMarkers.push(mesh);
   }
