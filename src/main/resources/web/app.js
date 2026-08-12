@@ -6,7 +6,7 @@ const state = { hasBot: false, name: '', x: 0, y: 0, z: 0, yaw: 0, pitch: 0, hp:
 let lookYaw = 0, lookPitch = 0;   // camera = bot eyes, driven by mouse
 let locked = false;               // pointer-lock (Minecraft-style) active
 let lookDX = 0, lookDY = 0;       // accumulated mouse deltas, sent once per frame
-let prev = null, cur = null;      // state interpolation keyframes
+const hist = [];                  // recent states, oldest first (interpolation buffer)
 
 // ---------- three.js scene ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -52,11 +52,10 @@ function handle(m) {
         state.name = m.name; state.x = m.pos[0]; state.y = m.pos[1]; state.z = m.pos[2];
         state.yaw = m.yaw; state.pitch = m.pitch; state.hp = m.hp;
         state.mode = m.mode; state.stopped = m.stopped;
-        prev = cur;
-        cur = { t: performance.now(), x: state.x, y: state.y, z: state.z, yaw: state.yaw, pitch: state.pitch };
-        if (!locked) { lookYaw = m.yaw; lookPitch = m.pitch; } // follow bot when not aiming
+        hist.push({ t: performance.now(), x: state.x, y: state.y, z: state.z, yaw: state.yaw, pitch: state.pitch });
+        if (hist.length > 12) hist.shift();
       } else {
-        prev = cur = null;
+        hist.length = 0;
       }
       setStatus(state.hasBot
         ? `bot: ${state.name}  hp: ${state.hp}  mode: ${state.mode}${state.stopped ? ' (STOPPED)' : ''}`
@@ -264,6 +263,24 @@ function setStatus(t) { $('status').textContent = t; }
 
 const shortestAngle = d => ((d + 180) % 360 + 360) % 360 - 180;
 
+// Interpolate the state stream, rendering slightly behind the newest frame
+// (RENDER_DELAY) so network jitter turns into smooth motion instead of stutters.
+const RENDER_DELAY = 50; // ms
+function interpolated(now) {
+  const target = now - RENDER_DELAY;
+  while (hist.length >= 2 && hist[1].t <= target) hist.shift(); // drop frames we've passed
+  if (hist.length < 2) return hist[0] || null;
+  const a = hist[0], b = hist[1];
+  const k = Math.min(1, (target - a.t) / Math.max(1, b.t - a.t));
+  return {
+    x: a.x + (b.x - a.x) * k,
+    y: a.y + (b.y - a.y) * k,
+    z: a.z + (b.z - a.z) * k,
+    yaw: a.yaw + shortestAngle(b.yaw - a.yaw) * k,
+    pitch: a.pitch + (b.pitch - a.pitch) * k,
+  };
+}
+
 // ---------- main loop ----------
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
@@ -284,17 +301,12 @@ function frame() {
   }
 
   if (state.hasBot) {
-    // interpolate between the two latest states for smooth motion
-    let x = state.x, y = state.y, z = state.z, yaw = state.yaw, pitch = state.pitch;
-    if (prev && cur) {
-      const a = Math.min(1, (performance.now() - prev.t) / Math.max(1, cur.t - prev.t));
-      x = prev.x + (cur.x - prev.x) * a;
-      y = prev.y + (cur.y - prev.y) * a;
-      z = prev.z + (cur.z - prev.z) * a;
-      yaw = prev.yaw + shortestAngle(cur.yaw - prev.yaw) * a;
-      pitch = prev.pitch + (cur.pitch - prev.pitch) * a;
-    }
+    // interpolate between recent states for smooth motion under jitter
+    const ip = interpolated(performance.now());
+    const x = ip ? ip.x : state.x, y = ip ? ip.y : state.y, z = ip ? ip.z : state.z;
+    const yaw = ip ? ip.yaw : state.yaw, pitch = ip ? ip.pitch : state.pitch;
     camera.position.set(x, y + 1.62, z);
+    if (!locked) { lookYaw = yaw; lookPitch = pitch; } // follow bot's (smoothed) aim when not aiming
     camera.rotation.y = THREE.MathUtils.degToRad(180 - lookYaw);
     camera.rotation.x = THREE.MathUtils.degToRad(-lookPitch); // MC pitch: positive = down
 

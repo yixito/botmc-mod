@@ -55,7 +55,7 @@ public class BotManager {
 
     private final List<Runnable> actionQueue = new ArrayList<>();
     private FakeConnection fakeConn;
-    private int stateTimer, blockTimer, entityTimer;
+    private int stateTimer, blockTimer, blockEditTimer, entityTimer;
     private int lastX0 = Integer.MIN_VALUE, lastY0, lastZ0; // last sent snapshot window
 
     // ---- lifecycle (server thread) ----
@@ -151,7 +151,7 @@ public class BotManager {
         if (RemoteBotMod.web.hasClients()) {
             if (--stateTimer <= 0) { stateTimer = 1; RemoteBotMod.web.broadcast(stateJson()); }
             if (--blockTimer <= 0) {
-                blockTimer = 2; // 10 Hz poll; content only changes when the window shifts
+                blockTimer = 2; // 10 Hz poll; fast path when the window shifts
                 BlockPos p = bot.blockPosition();
                 int wx = p.getX() - SNAPSHOT_RADIUS, wy = p.getY() - 6, wz = p.getZ() - SNAPSHOT_RADIUS;
                 if (wx != lastX0 || wy != lastY0 || wz != lastZ0) {
@@ -159,6 +159,9 @@ public class BotManager {
                     RemoteBotMod.web.broadcast(blocksJson());
                 }
             }
+            // world edits (placements, explosions, redstone) don't shift the window:
+            // heartbeat re-sends so they show up too
+            if (--blockEditTimer <= 0) { blockEditTimer = 10; RemoteBotMod.web.broadcast(blocksJson()); }
             // entities move on their own, so send them regardless of the block window
             if (--entityTimer <= 0) { entityTimer = 10; RemoteBotMod.web.broadcast(entitiesJson()); }
         }
