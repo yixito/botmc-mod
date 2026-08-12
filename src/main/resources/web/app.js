@@ -3,7 +3,10 @@ const params = new URLSearchParams(location.search);
 const token = params.get('t') || '';
 
 const state = { hasBot: false, name: '', x: 0, y: 0, z: 0, yaw: 0, pitch: 0, hp: 0, mode: 'IDLE', stopped: false };
-let lookYaw = 0, lookPitch = 0, dragging = false;
+let lookYaw = 0, lookPitch = 0;   // camera = bot eyes, driven by mouse
+let locked = false;               // pointer-lock (Minecraft-style) active
+let lookDX = 0, lookDY = 0;       // accumulated mouse deltas, sent once per frame
+let prev = null, cur = null;      // state interpolation keyframes
 
 // ---------- three.js scene ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -49,7 +52,11 @@ function handle(m) {
         state.name = m.name; state.x = m.pos[0]; state.y = m.pos[1]; state.z = m.pos[2];
         state.yaw = m.yaw; state.pitch = m.pitch; state.hp = m.hp;
         state.mode = m.mode; state.stopped = m.stopped;
-        if (!dragging) { lookYaw = m.yaw; lookPitch = m.pitch; }
+        prev = cur;
+        cur = { t: performance.now(), x: state.x, y: state.y, z: state.z, yaw: state.yaw, pitch: state.pitch };
+        if (!locked) { lookYaw = m.yaw; lookPitch = m.pitch; } // follow bot when not aiming
+      } else {
+        prev = cur = null;
       }
       setStatus(state.hasBot
         ? `bot: ${state.name}  hp: ${state.hp}  mode: ${state.mode}${state.stopped ? ' (STOPPED)' : ''}`
@@ -97,14 +104,14 @@ function blockColor(name) {
   return new THREE.Color().setHSL((h % 360) / 360, 0.45, 0.55);
 }
 
-// 6 faces of a unit box, CCW outward
+// 6 faces of a unit box, wound counter-clockwise seen from outside (outward normals)
 const FACES = [
   { n: [1, 0, 0], v: [[.5, -.5, -.5], [.5, .5, -.5], [.5, .5, .5], [.5, -.5, .5]] },
   { n: [-1, 0, 0], v: [[-.5, -.5, .5], [-.5, .5, .5], [-.5, .5, -.5], [-.5, -.5, -.5]] },
-  { n: [0, 1, 0], v: [[-.5, .5, -.5], [.5, .5, -.5], [.5, .5, .5], [-.5, .5, .5]] },
-  { n: [0, -1, 0], v: [[-.5, -.5, .5], [.5, -.5, .5], [.5, -.5, -.5], [-.5, -.5, -.5]] },
-  { n: [0, 0, 1], v: [[-.5, -.5, .5], [-.5, .5, .5], [.5, .5, .5], [.5, -.5, .5]] },
-  { n: [0, 0, -1], v: [[.5, -.5, -.5], [.5, .5, -.5], [-.5, .5, -.5], [-.5, -.5, -.5]] },
+  { n: [0, 1, 0], v: [[-.5, .5, .5], [.5, .5, .5], [.5, .5, -.5], [-.5, .5, -.5]] },
+  { n: [0, -1, 0], v: [[-.5, -.5, -.5], [.5, -.5, -.5], [.5, -.5, .5], [-.5, -.5, .5]] },
+  { n: [0, 0, 1], v: [[.5, -.5, .5], [.5, .5, .5], [-.5, .5, .5], [-.5, -.5, .5]] },
+  { n: [0, 0, -1], v: [[-.5, -.5, -.5], [-.5, .5, -.5], [.5, .5, -.5], [.5, -.5, -.5]] },
 ];
 const FACE_LIGHT = { '1,0,0': .78, '-1,0,0': .78, '0,1,0': 1.0, '0,-1,0': .45, '0,0,1': .78, '0,0,-1': .78 };
 
@@ -162,19 +169,7 @@ function drawPath(points) {
   scene.add(pathLine);
 }
 
-function updateBotMarker() {
-  if (!state.hasBot) return;
-  if (!botMarker) {
-    botMarker = new THREE.Mesh(
-      new THREE.BoxGeometry(0.6, 1.8, 0.6),
-      new THREE.MeshLambertMaterial({ color: 0x33ff55 }));
-    scene.add(botMarker);
-  }
-  botMarker.position.set(state.x, state.y + 0.9, state.z);
-  botMarker.rotation.y = THREE.MathUtils.degToRad(180 - state.yaw);
-}
-
-// ---------- input ----------
+// ---------- input (Minecraft-style) ----------
 const keys = { f: false, b: false, l: false, r: false, j: false };
 const KEYMAP = { KeyW: 'f', KeyS: 'b', KeyA: 'l', KeyD: 'r', Space: 'j' };
 
@@ -186,6 +181,23 @@ function sendInput() {
   send({ type: 'input', f: keys.f, b: keys.b, l: keys.l, r: keys.r, j: keys.j });
 }
 
+// click the view to capture the mouse, like the game
+renderer.domElement.addEventListener('click', () => {
+  if (!locked) renderer.domElement.requestPointerLock();
+});
+document.addEventListener('pointerlockchange', () => {
+  locked = document.pointerLockElement === renderer.domElement;
+  if (!locked) clearKeys();
+});
+document.addEventListener('mousemove', e => {
+  if (!locked) return;
+  lookDX += e.movementX;
+  lookDY += e.movementY;
+});
+document.addEventListener('mousedown', e => {
+  if (locked && e.button === 0) send({ type: 'attack' });
+});
+
 addEventListener('keydown', e => {
   if (e.code === 'KeyF') { send({ type: 'attack' }); return; }
   const k = KEYMAP[e.code];
@@ -195,36 +207,10 @@ addEventListener('keyup', e => {
   const k = KEYMAP[e.code];
   if (k) { keys[k] = false; sendInput(); }
 });
-addEventListener('blur', clearKeys);
-
-addEventListener('mousedown', e => {
-  if (e.button === 2) { send({ type: 'mode', mode: 'IDLE' }); return; } // right-click cancels
-  dragging = true;
+addEventListener('blur', () => {
+  clearKeys();
+  if (document.pointerLockElement) document.exitPointerLock();
 });
-addEventListener('mouseup', e => { if (e.button === 0) { dragging = false; maybeClick(e); } });
-addEventListener('mousemove', e => {
-  if (!dragging) return;
-  lookYaw += e.movementX * 0.25;
-  lookPitch += e.movementY * 0.25;
-  lookPitch = Math.max(-85, Math.min(85, lookPitch));
-  send({ type: 'look', yaw: lookYaw, pitch: lookPitch });
-});
-addEventListener('contextmenu', e => e.preventDefault());
-
-function maybeClick(e) {
-  if (!voxelMesh) return;
-  const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
-  const ray = new THREE.Raycaster();
-  ray.setFromCamera(ndc, camera);
-  const hit = ray.intersectObject(voxelMesh)[0];
-  if (!hit) return;
-  const n = hit.face.normal;
-  const bx = Math.floor(hit.point.x - n.x * 0.5);
-  const by = Math.floor(hit.point.y - n.y * 0.5);
-  const bz = Math.floor(hit.point.z - n.z * 0.5);
-  send({ type: 'goto', x: bx, y: by, z: bz });
-  setStatus('walking to ' + bx + ',' + by + ',' + bz);
-}
 
 // ---------- buttons ----------
 $('btn-follow').onclick = () => send({ type: 'mode', mode: 'FOLLOW' });
@@ -236,6 +222,8 @@ $('btn-attack').onclick = () => send({ type: 'attack' });
 function $(id) { return document.getElementById(id); }
 function setStatus(t) { $('status').textContent = t; }
 
+const shortestAngle = d => ((d + 180) % 360 + 360) % 360 - 180;
+
 // ---------- main loop ----------
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
@@ -245,11 +233,39 @@ addEventListener('resize', () => {
 
 function frame() {
   requestAnimationFrame(frame);
+
+  // send accumulated look deltas once per frame
+  if (locked && (lookDX !== 0 || lookDY !== 0)) {
+    lookYaw += lookDX * 0.25;
+    lookPitch += lookDY * 0.25;
+    lookPitch = Math.max(-85, Math.min(85, lookPitch));
+    lookDX = lookDY = 0;
+    send({ type: 'look', yaw: lookYaw, pitch: lookPitch });
+  }
+
   if (state.hasBot) {
-    camera.position.set(state.x, state.y + 1.62, state.z);
+    // interpolate between the two latest states for smooth motion
+    let x = state.x, y = state.y, z = state.z, yaw = state.yaw, pitch = state.pitch;
+    if (prev && cur) {
+      const a = Math.min(1, (performance.now() - prev.t) / Math.max(1, cur.t - prev.t));
+      x = prev.x + (cur.x - prev.x) * a;
+      y = prev.y + (cur.y - prev.y) * a;
+      z = prev.z + (cur.z - prev.z) * a;
+      yaw = prev.yaw + shortestAngle(cur.yaw - prev.yaw) * a;
+      pitch = prev.pitch + (cur.pitch - prev.pitch) * a;
+    }
+    camera.position.set(x, y + 1.62, z);
     camera.rotation.y = THREE.MathUtils.degToRad(180 - lookYaw);
     camera.rotation.x = THREE.MathUtils.degToRad(lookPitch);
-    updateBotMarker();
+
+    if (!botMarker) {
+      botMarker = new THREE.Mesh(
+        new THREE.BoxGeometry(0.6, 1.8, 0.6),
+        new THREE.MeshLambertMaterial({ color: 0x33ff55 }));
+      scene.add(botMarker);
+    }
+    botMarker.position.set(x, y + 0.9, z);
+    botMarker.rotation.y = THREE.MathUtils.degToRad(180 - yaw);
   }
   renderer.render(scene, camera);
 }

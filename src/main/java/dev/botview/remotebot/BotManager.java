@@ -146,8 +146,8 @@ public class BotManager {
             RemoteBotMod.web.broadcast(pathJson());
         }
         if (RemoteBotMod.web.hasClients()) {
-            if (--stateTimer <= 0) { stateTimer = 4; RemoteBotMod.web.broadcast(stateJson()); }
-            if (--blockTimer <= 0) { blockTimer = 20; RemoteBotMod.web.broadcast(blocksJson()); }
+            if (--stateTimer <= 0) { stateTimer = 1; RemoteBotMod.web.broadcast(stateJson()); }
+            if (--blockTimer <= 0) { blockTimer = 4; RemoteBotMod.web.broadcast(blocksJson()); }
         }
     }
 
