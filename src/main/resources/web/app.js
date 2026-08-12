@@ -16,7 +16,7 @@ document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x7ec8e3);
-scene.fog = new THREE.Fog(0x7ec8e3, 34, 70);
+scene.fog = new THREE.Fog(0x7ec8e3, 26, 100);
 const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 200);
 camera.rotation.order = 'YXZ';
 scene.add(new THREE.AmbientLight(0xffffff, 0.55));
@@ -115,27 +115,57 @@ const FACES = [
 ];
 const FACE_LIGHT = { '1,0,0': .78, '-1,0,0': .78, '0,1,0': 1.0, '0,-1,0': .45, '0,0,1': .78, '0,0,-1': .78 };
 
+// non-full blocks: render as two crossing planes (like Minecraft) and don't occlude
+const CROSS_BLOCKS = new Set([
+  'tall_grass', 'grass', 'fern', 'large_fern', 'dead_bush', 'short_grass',
+  'flower', 'poppy', 'dandelion', 'orchid', 'allium', 'azure_bluet', 'tulip',
+  'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'wither_rose', 'torch',
+  'oak_sapling', 'spruce_sapling', 'birch_sapling', 'jungle_sapling', 'acacia_sapling', 'dark_oak_sapling',
+  'wheat', 'carrots', 'potatoes', 'beetroots', 'sugar_cane', 'bamboo', 'lily_pad',
+  'sunflower', 'lilac', 'rose_bush', 'peony', 'red_mushroom', 'brown_mushroom',
+  'crimson_fungus', 'warped_fungus', 'crimson_roots', 'warped_roots', 'nether_sprouts',
+  'twisting_vines', 'weeping_vines', 'vine'
+]);
+// two perpendicular diagonal planes forming an X
+const CROSS_QUADS = [
+  [[-.5, -.5, -.5], [-.5, .5, -.5], [.5, .5, .5], [.5, -.5, .5]],
+  [[.5, -.5, -.5], [.5, .5, -.5], [-.5, .5, .5], [-.5, -.5, .5]],
+];
+
 function buildVoxels(m) {
   const { x0, y0, z0, w, h, d, palette, data } = m;
   const bytes = Uint8Array.from(atob(data), c => c.charCodeAt(0));
-  const solid = (x, y, z) =>
-    x >= 0 && y >= 0 && z >= 0 && x < w && y < h && z < d && bytes[(y * d + z) * w + x] !== 0;
+  const at = (x, y, z) => (y * d + z) * w + x;
+  const inGrid = (x, y, z) => x >= 0 && y >= 0 && z >= 0 && x < w && y < h && z < d;
+  const isCross = (x, y, z) => inGrid(x, y, z) && bytes[at(x, y, z)] !== 0 && CROSS_BLOCKS.has(palette[bytes[at(x, y, z)]]);
+  // a solid block occludes neighbours; cross plants don't
+  const occludes = (x, y, z) => inGrid(x, y, z) && bytes[at(x, y, z)] !== 0 && !isCross(x, y, z);
 
   const positions = [], colors = [], indices = [];
+  const quad = (verts, light) => {
+    const base = positions.length / 3;
+    for (const v of verts) {
+      positions.push(x0 + v[0], y0 + v[1], z0 + v[2]);
+      colors.push(light[0], light[1], light[2]);
+    }
+    indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  };
+
   for (let y = 0; y < h; y++) for (let z = 0; z < d; z++) for (let x = 0; x < w; x++) {
-    const b = bytes[(y * d + z) * w + x];
+    const b = bytes[at(x, y, z)];
     if (!b) continue;
     const c = blockColor(palette[b]);
+    if (isCross(x, y, z)) {
+      for (const q of CROSS_QUADS) {
+        quad(q.map(v => [x0 + x + 0.5 + v[0], y0 + y + 0.5 + v[1], z0 + z + 0.5 + v[2]]), [c.r * .9, c.g * .9, c.b * .9]);
+      }
+      continue;
+    }
     for (const face of FACES) {
-      if (solid(x + face.n[0], y + face.n[1], z + face.n[2])) continue; // culled
+      if (occludes(x + face.n[0], y + face.n[1], z + face.n[2])) continue; // culled
       const k = face.n.join(',');
       const light = FACE_LIGHT[k];
-      const base = positions.length / 3;
-      for (const v of face.v) {
-        positions.push(x0 + x + 0.5 + v[0], y0 + y + 0.5 + v[1], z0 + z + 0.5 + v[2]);
-        colors.push(c.r * light, c.g * light, c.b * light);
-      }
-      indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      quad(face.v.map(v => [x0 + x + 0.5 + v[0], y0 + y + 0.5 + v[1], z0 + z + 0.5 + v[2]]), [c.r * light, c.g * light, c.b * light]);
     }
   }
   const geo = new THREE.BufferGeometry();
@@ -144,7 +174,7 @@ function buildVoxels(m) {
   geo.setIndex(indices);
   geo.computeVertexNormals();
   if (voxelMesh) { scene.remove(voxelMesh); voxelMesh.geometry.dispose(); }
-  voxelMesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  voxelMesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
   scene.add(voxelMesh);
 }
 
@@ -256,7 +286,7 @@ function frame() {
     }
     camera.position.set(x, y + 1.62, z);
     camera.rotation.y = THREE.MathUtils.degToRad(180 - lookYaw);
-    camera.rotation.x = THREE.MathUtils.degToRad(lookPitch);
+    camera.rotation.x = THREE.MathUtils.degToRad(-lookPitch); // MC pitch: positive = down
 
     if (!botMarker) {
       botMarker = new THREE.Mesh(

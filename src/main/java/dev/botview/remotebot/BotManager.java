@@ -42,8 +42,8 @@ import java.util.UUID;
 public class BotManager {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final SecureRandom RNG = new SecureRandom();
-    private static final int SNAPSHOT_RADIUS = 14;   // blocks in each x/z direction
-    private static final int SNAPSHOT_HEIGHT = 16;   // layers of the snapshot column
+    private static final int SNAPSHOT_RADIUS = 24;   // blocks in each x/z direction
+    private static final int SNAPSHOT_HEIGHT = 20;   // layers of the snapshot column
 
     public ServerPlayer bot;
     public UUID owner;
@@ -54,6 +54,7 @@ public class BotManager {
     private final List<Runnable> actionQueue = new ArrayList<>();
     private FakeConnection fakeConn;
     private int stateTimer, blockTimer;
+    private int lastX0 = Integer.MIN_VALUE, lastY0, lastZ0; // last sent snapshot window
 
     // ---- lifecycle (server thread) ----
 
@@ -147,7 +148,15 @@ public class BotManager {
         }
         if (RemoteBotMod.web.hasClients()) {
             if (--stateTimer <= 0) { stateTimer = 1; RemoteBotMod.web.broadcast(stateJson()); }
-            if (--blockTimer <= 0) { blockTimer = 4; RemoteBotMod.web.broadcast(blocksJson()); }
+            if (--blockTimer <= 0) {
+                blockTimer = 2; // 10 Hz poll; content only changes when the window shifts
+                BlockPos p = bot.blockPosition();
+                int wx = p.getX() - SNAPSHOT_RADIUS, wy = p.getY() - 6, wz = p.getZ() - SNAPSHOT_RADIUS;
+                if (wx != lastX0 || wy != lastY0 || wz != lastZ0) {
+                    lastX0 = wx; lastY0 = wy; lastZ0 = wz;
+                    RemoteBotMod.web.broadcast(blocksJson());
+                }
+            }
         }
     }
 

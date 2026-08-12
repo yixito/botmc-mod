@@ -58,7 +58,7 @@ public class RemoteWebServer {
                             ch.pipeline().addLast(new HttpServerCodec());
                             ch.pipeline().addLast(new HttpObjectAggregator(65536));
                             ch.pipeline().addLast(new WebSocketServerCompressionHandler());
-                            ch.pipeline().addLast(new WebSocketServerProtocolHandler("/ws", null, true, 65536));
+                            ch.pipeline().addLast(new WebSocketServerProtocolHandler("/ws", null, true, 262144));
                             ch.pipeline().addLast(new HttpHandler());
                             ch.pipeline().addLast(new WsHandler());
                         }
